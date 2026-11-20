@@ -46,3 +46,10 @@ backend/data/storage/*.db-journal
 .DS_Store
 Thumbs.db
 *.tsbuildinfo
+
+# Local recordings and generated output
+/backend/data/storage/
+/scratch/
+/backend/data/samples/*.dat
+/backend/data/samples/*.hea
+/backend/data/samples/*.mat
