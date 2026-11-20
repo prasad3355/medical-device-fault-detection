@@ -7,7 +7,13 @@ export default function DashboardPage() {
     return (
         <DashboardView
             onNavigateToUpload={() => router.push('/upload')}
-            onNavigateToAnalysis={() => router.push('/analysis')}
+            onNavigateToAnalysis={(rec) => {
+                if (rec && rec.id) {
+                    router.push(`/analysis?id=${encodeURIComponent(rec.id)}`);
+                } else {
+                    router.push('/analysis');
+                }
+            }}
             onNavigateToHistory={() => router.push('/history')}
         />
     );

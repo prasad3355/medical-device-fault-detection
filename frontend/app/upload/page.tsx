@@ -7,9 +7,12 @@ export default function UploadPage() {
 
     return (
         <UploadWorkflow
-            onAnalyzeDataset={(dataset, mode) => {
-                // You could pass parameters via state management or query params
-                router.push('/analysis');
+            onAnalyzeSuccess={(data) => {
+                if (data && data.record && data.record.id) {
+                    router.push(`/analysis?id=${encodeURIComponent(data.record.id)}`);
+                } else {
+                    router.push('/analysis');
+                }
             }}
         />
     );

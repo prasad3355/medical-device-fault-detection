@@ -7,9 +7,9 @@ export type NavigationRoute =
   | 'pipeline' 
   | 'about';
 
-export type DeviceFaultStatus = 'Normal' | 'Possible Anomaly' | 'Fault Detected';
-export type PatientRiskLevel = 'Low' | 'Moderate' | 'High';
-export type AnalysisMode = 'dual' | 'fault_only' | 'risk_only';
+export type DeviceFaultStatus = 'Normal' | 'Possible Anomaly' | 'Fault Detected' | 'Not assessed' | 'True Alarm' | 'False Alarm';
+export type PatientRiskLevel = 'Low' | 'Moderate' | 'High' | 'Not assessed';
+export type AnalysisMode = 'dual' | 'fault_only' | 'risk_only' | 'icu_alarm';
 
 export interface TelemetryPoint {
   time: string;

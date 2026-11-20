@@ -1,6 +1,6 @@
 "use client";
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -10,6 +10,7 @@ import {
   ArrowRight
 } from 'lucide-react';
 import { NavigationRoute } from '../../types';
+import { checkBackendHealth } from '../../lib/api';
 
 interface HeaderProps {
   activeDatasetName?: string;
@@ -33,6 +34,26 @@ export const Header: React.FC<HeaderProps> = ({
   const pathname = usePathname();
   const currentRoute = pathname.substring(1) || 'dashboard';
   const currentInfo = ROUTE_LABELS[currentRoute] || { title: 'Dashboard', breadcrumb: 'Workspace / Dashboard' };
+  const [isHealthy, setIsHealthy] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    const verifyHealth = async () => {
+      try {
+        await checkBackendHealth();
+        if (isMounted) setIsHealthy(true);
+      } catch {
+        if (isMounted) setIsHealthy(false);
+      }
+    };
+
+    verifyHealth();
+    const interval = setInterval(verifyHealth, 15000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, []);
 
   return (
     <header className="sticky top-0 z-30 h-16 bg-[#070b15]/90 backdrop-blur-md border-b border-slate-800/80 px-4 sm:px-6 lg:px-8 flex items-center justify-between">
@@ -58,10 +79,21 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Right Controls */}
       <div className="flex items-center gap-2 sm:gap-4">
-        {/* System Ready Status */}
-        <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900/90 border border-slate-800 text-xs font-medium text-slate-300 shadow-sm">
-          <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]" />
-          <span>System Ready</span>
+        {/* Live System Ready Status */}
+        <div 
+          className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900/90 border border-slate-800 text-xs font-medium text-slate-300 shadow-sm"
+          title={isHealthy === true ? "FastAPI backend reachable & active" : isHealthy === false ? "FastAPI backend disconnected (port 8000)" : "Checking backend status..."}
+        >
+          <span className={`w-2 h-2 rounded-full ${
+            isHealthy === true 
+              ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]' 
+              : isHealthy === false 
+              ? 'bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.8)] animate-pulse' 
+              : 'bg-amber-400 animate-pulse'
+          }`} />
+          <span className={isHealthy === false ? 'text-rose-300' : isHealthy === true ? 'text-slate-300' : 'text-amber-300'}>
+            {isHealthy === true ? 'System Ready' : isHealthy === false ? 'System Offline' : 'Connecting...'}
+          </span>
         </div>
 
         {/* Dataset Status */}

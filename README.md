@@ -2,11 +2,11 @@
 
 ## Project Overview
 
-This project is a software-based medical analytics system designed to detect abnormal and fault patterns in medical-device sensor data using a deep learning pipeline. It provides a comprehensive, interactive dashboard for clinicians and technicians to conduct in-depth data analysis. 
+This project is a software-based medical analytics system designed to detect abnormal and fault patterns in medical-device sensor data using a deep learning pipeline. It provides a comprehensive, interactive dashboard for clinicians and biomedical technicians to conduct in-depth data analysis. 
 
 The system clearly distinguishes between two critical aspects of monitoring:
-- **Medical Device Fault/Anomaly Detection:** Identifying hardware or sensor malfunctions (e.g., transducer anomalies, signal dropping, or noise artifact injection) before they impact patient care.
-- **Patient Risk Analysis:** Detecting physiological irregularities or critical stability deviations from the ingested telemetry data.
+- **Medical Device Fault/Anomaly Detection:** Identifying hardware or sensor malfunctions (e.g., transducer decoupling, optical decay, motor occlusion, or noise artifact injection) before they impact clinical telemetry.
+- **Patient Risk Analysis:** Detecting physiological irregularities or critical stability deviations (e.g., hypoxia, tachycardia, bradycardia) from ingested telemetry data.
 
 *Note: This system serves strictly as a decision-support and demonstration interface. It is **not** an autonomous medical diagnosis system.*
 
@@ -15,171 +15,127 @@ The system clearly distinguishes between two critical aspects of monitoring:
 ```text
        CSV / Excel Dataset
                 ↓
-         Data Validation
+    Data Validation & Schema
                 ↓
-       Data Preprocessing
+ Data Preprocessing (Savitzky-Golay / SQI)
                 ↓
- CNN / LSTM Deep Learning Model
+  1D-CNN + BiLSTM + Isolation Forest
                 ↓
-   Fault / Anomaly Detection
+Fault / Anomaly & Patient Risk Detection
                 ↓
        Analysis & Results
                 ↓
-      Dashboard / Reports
+       Dashboard / Reports
 ```
 
 ## Key Features
 
-- Dataset upload
-- Dataset validation
-- Medical device anomaly/fault detection
-- Patient risk analysis module
-- Interactive analytics dashboard
-- Sensor intelligence visualization
-- Prediction history
-- Model performance visualization
-- ML pipeline visualization
-- Analysis reports
-- Responsive dark medical analytics UI
+- **Multi-Format Dataset Ingestion:** Drag-and-drop support for CSV, XLS, and XLSX medical telemetry files.
+- **Pre-Inference Validation:** Automatic schema mapping, sampling rate estimation, missing value interpolation, and IEEE-754 precision checks.
+- **Signal Quality Index (SQI):** Evaluates sensor coupling stability to distinguish probe motion artifacts from true physiological distress.
+- **Dual-Path Inference:**
+  - `dual`: Concurrent prediction of both device hardware fault and patient risk.
+  - `fault_only`: Focused evaluation of transducer noise, lead detachment, and electrical drift.
+  - `risk_only`: Focused evaluation of patient vital stability flags.
+- **Interactive Telemetry Visualizations:** Multi-channel Recharts visualization with highlighted anomaly intervals.
+- **Persistent Audit Log:** SQLite persistence ensuring full report fidelity after page reloads.
+- **Empirical Benchmarks:** 10-fold cross validation comparison across 1D-CNN + BiLSTM, Random Forest, SVM, and Isolation Forest.
 
 ## Technology Stack
 
 ### Frontend
-- Next.js
-- React
-- TypeScript
-- Tailwind CSS
-- Recharts
-- Lucide React
-- Motion / animation library
+- **Framework:** Next.js 16 (App Router)
+- **UI Library:** React 19, Tailwind CSS
+- **Visualizations:** Recharts, Lucide React
+- **Language:** TypeScript
 
 ### Backend
-*Backend and API integration are handled separately by the backend engineering team.*
+- **Framework:** FastAPI
+- **Server:** Uvicorn
+- **Persistence:** SQLite (`backend/data/storage/med_fault.db`)
+- **Data Ingestion:** Pandas, Python-Multipart
 
-### AI/ML
-- CNN (Convolutional Neural Networks)
-- LSTM (Long Short-Term Memory Networks)
-- Data preprocessing
-- Model evaluation
-- Anomaly/fault detection
+### AI / ML
+- **Temporal Deep Learning:** 1D-CNN (Local Feature Extraction) + BiLSTM (Bidirectional Sequential State Updates)
+- **Outlier Head:** Scikit-Learn Isolation Forest Ensemble
+- **Digital Signal Processing:** SciPy (Savitzky-Golay filtering, baseline correction, Signal Quality Index)
 
-### Database / Data
-*Currently utilizing static mock data for front-end demonstration. Database/storage architecture will be finalized and integrated by the backend team.*
-
-## Frontend Architecture
-
-```text
-frontend/
-├── app/
-│   ├── dashboard/
-│   ├── upload/
-│   ├── analysis/
-│   ├── history/
-│   ├── model-performance/
-│   ├── ml-pipeline/
-│   └── about/
-├── components/
-│   ├── dashboard/
-│   ├── upload/
-│   ├── analysis/
-│   ├── history/
-│   ├── models/
-│   ├── pipeline/
-│   ├── about/
-│   ├── layout/
-│   └── ui/
-├── data/
-├── lib/
-├── types/
-└── public/
-```
-
-## Application Pages
-
-| Page | Purpose |
-|---|---|
-| Dashboard | Overall system analytics and status |
-| Upload Dataset | Upload and inspect CSV/Excel datasets |
-| Analysis & Results | Display fault/anomaly and risk analysis |
-| Prediction History | Previous prediction records |
-| Model Performance | Model metrics and performance |
-| ML Pipeline | Visualization of the ML workflow |
-| About Project | Project information and architecture |
-
-## Team
-
-- **Prasad Swain** — Frontend + Deployment
-- **Susil Kumar Sahu** — Backend + API
-- **Mahesh Kumar Bhuyan** — Data Engineering
-- **Nigamananda Parida** — AI/ML
-- **Advisor:** Prof. Rabindra Kumar Shial
-
-## Development Branches
-
-The repository utilizes the following branch topology for structured collaboration:
-
-```text
-main
-├── feat/frontend
-├── feat/backend
-├── feat/data
-└── feat/ai-ml
-```
-
-**Development Workflow Rule:**
-Feature branches → Pull Request → Review/Testing → main
+---
 
 ## Getting Started
 
-To run the Next.js frontend application locally:
+### 1. Prerequisites
+- **Node.js:** v18.0.0 or later (v20+ recommended)
+- **Python:** v3.10 or later
 
-```bash
-cd frontend
-npm install
-npm run dev
+### 2. Environment Configuration
+Create or update `frontend/.env.local` (default fallback is `http://localhost:8000/api`):
+```env
+NEXT_PUBLIC_API_URL=http://localhost:8000/api
 ```
 
-Then, open your browser and navigate to:
-http://localhost:3000
+### 3. Dependency Installation
+
+```bash
+# Install frontend packages
+cd frontend
+npm install
+cd ..
+
+# Install backend packages
+pip install -r backend/requirements.txt
+```
+
+### 4. Running the Project (One-Command Startup)
+
+To run both the Next.js frontend (port 3000) and the FastAPI backend (port 8000) simultaneously:
+
+```bash
+npm run dev:all
+```
+
+Alternatively, you can start the services in separate terminals:
+
+```bash
+# Terminal 1: Backend
+npm run dev:backend
+# (or: cd backend && python run.py)
+
+# Terminal 2: Frontend
+npm run dev
+# (or: cd frontend && npm run dev)
+```
+
+Open your browser and navigate to:
+- **Frontend Dashboard:** [http://localhost:3000](http://localhost:3000)
+- **Backend API & Swagger Docs:** [http://localhost:8000/docs](http://localhost:8000/docs)
+
+---
+
+## Quick Demo Walkthrough
+
+1. Open **[http://localhost:3000/upload](http://localhost:3000/upload)**.
+2. Under **"benchmark clinical telemetry dataset"**, select `ICU_MultiParameter_Telemetry_A4.csv`.
+3. Select **"Dual Multi-Task Inference"** as the execution mode.
+4. Click **"Execute Deep Learning Pipeline"**.
+5. You will be redirected to `/analysis?id=<run_id>`. Inspect:
+   - Overall Device Status (`Possible Anomaly`) and Patient Risk (`Moderate`).
+   - The multi-channel telemetry chart with flagged anomaly intervals (SpO2 desaturation at 10:33–10:41 and thermal drift at 11:35–11:42).
+6. **Refresh the page**: Notice that the full report, telemetry series, and findings are safely loaded from the persistent SQLite database.
+7. Open **Prediction History** ([http://localhost:3000/history](http://localhost:3000/history)) to view the saved run and reopen its report.
+
+---
 
 ## Production Build
 
-To generate an optimized production build for the frontend:
+To verify the frontend production build:
 
 ```bash
-cd frontend
 npm run build
 ```
 
-## Deployment
-
-The frontend application is natively designed for serverless deployment on **Vercel**. 
-The deployment targets the directory:
-`frontend/`
-
-## Current Status
-
-- **Frontend UI completed.**
-- **Next.js migration completed.** (All static components ported to Next.js App Router).
-- **All frontend routes implemented.**
-- **Production build verified successfully.**
-- Backend/ML integration will be connected through the finalized API contract in a future milestone.
-
-## Important Scope
-
-This project is strictly **software and data-driven.**
-
-It explicitly **DOES NOT** require:
-- ESP32 or Raspberry Pi
-- Arduino
-- MQTT Protocols
-- Physical IoT sensors
-- Hardware control
-
-Furthermore:
-- No authentication is currently required for system operation.
-- No payment, subscription, or billing system is part of the project scope.
+---
 
 ## Disclaimer
 
-This system is intended for **academic, research, and demonstration purposes only**. It should absolutely not be treated as a substitute for professional medical diagnosis, certified medical hardware, or clinical decision-making protocols.
+This system is intended for **academic, research, and demonstration purposes only**. It should not be treated as a substitute for professional medical diagnosis, certified medical hardware, or clinical decision-making protocols.

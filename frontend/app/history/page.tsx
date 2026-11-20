@@ -8,7 +8,11 @@ export default function HistoryPage() {
     return (
         <PredictionHistory
             onSelectRecordForReport={(record) => {
-                router.push('/analysis');
+                if (record && record.id) {
+                    router.push(`/analysis?id=${encodeURIComponent(record.id)}`);
+                } else {
+                    router.push('/analysis');
+                }
             }}
         />
     );

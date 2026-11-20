@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Search, 
   Filter, 
@@ -14,26 +14,48 @@ import {
   Clock,
   Layers,
   Cpu,
-  ArrowRight
+  ArrowRight,
+  RefreshCw
 } from 'lucide-react';
-import { RECENT_ANALYSES } from '../../data/mockData';
 import { AnalysisRecord, DeviceFaultStatus, PatientRiskLevel } from '../../types';
+import { fetchAnalysisHistory } from '../../lib/api';
 
 interface PredictionHistoryProps {
+  records?: AnalysisRecord[];
   onSelectRecordForReport: (record: AnalysisRecord) => void;
 }
 
 export const PredictionHistory: React.FC<PredictionHistoryProps> = ({
+  records: initialRecords,
   onSelectRecordForReport
 }) => {
+  const [records, setRecords] = useState<AnalysisRecord[]>(initialRecords || []);
+  const [loading, setLoading] = useState<boolean>(!initialRecords);
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('All');
   const [riskFilter, setRiskFilter] = useState<string>('All');
   const [dateRange, setDateRange] = useState<string>('all_time');
   const [selectedRecord, setSelectedRecord] = useState<AnalysisRecord | null>(null);
 
+  useEffect(() => {
+    if (!initialRecords) {
+      let isMounted = true;
+      fetchAnalysisHistory()
+        .then((data) => {
+          if (isMounted) {
+            setRecords(data);
+            setLoading(false);
+          }
+        })
+        .catch(() => {
+          if (isMounted) setLoading(false);
+        });
+      return () => { isMounted = false; };
+    }
+  }, [initialRecords]);
+
   // Filter logic
-  const filteredRecords = RECENT_ANALYSES.filter((item) => {
+  const filteredRecords = records.filter((item) => {
     const matchesSearch = 
       item.datasetName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       item.deviceType.toLowerCase().includes(searchTerm.toLowerCase());
@@ -101,10 +123,10 @@ export const PredictionHistory: React.FC<PredictionHistoryProps> = ({
               <button
                 key={st}
                 onClick={() => setStatusFilter(st)}
-                className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all cursor-pointer ${
+                className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer ${
                   statusFilter === st
-                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                    ? 'bg-cyan-500 text-slate-950 font-bold shadow-sm'
+                    : 'bg-slate-900/80 text-slate-400 hover:text-white border border-slate-800'
                 }`}
               >
                 {st}
@@ -120,10 +142,10 @@ export const PredictionHistory: React.FC<PredictionHistoryProps> = ({
               <button
                 key={rk}
                 onClick={() => setRiskFilter(rk)}
-                className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all cursor-pointer ${
+                className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer ${
                   riskFilter === rk
-                    ? 'bg-blue-500/20 text-blue-300 border border-blue-500/40 shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                    ? 'bg-blue-500 text-white font-bold shadow-sm'
+                    : 'bg-slate-900/80 text-slate-400 hover:text-white border border-slate-800'
                 }`}
               >
                 {rk}
@@ -133,110 +155,115 @@ export const PredictionHistory: React.FC<PredictionHistoryProps> = ({
         </div>
       </div>
 
-      {/* Main Table */}
+      {/* Main Table Container */}
       <div className="rounded-xl border border-slate-800/80 bg-gradient-to-b from-[#091122]/90 to-[#060a13] p-5 shadow-xl overflow-hidden">
-        <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-          <span className="text-xs font-mono text-slate-400">
-            Showing {filteredRecords.length} of {RECENT_ANALYSES.length} evaluations
-          </span>
-          <span className="text-xs font-mono text-cyan-400">
-            Click row to inspect neural tensor diagnostics
-          </span>
-        </div>
-
-        <div className="overflow-x-auto -mx-5 px-5 mt-2">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="border-b border-slate-800/80 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-                <th className="py-3 px-3">Dataset Name</th>
-                <th className="py-3 px-3">Device Category</th>
-                <th className="py-3 px-3 text-right">Samples</th>
-                <th className="py-3 px-3">Device Status</th>
-                <th className="py-3 px-3">Risk Level</th>
-                <th className="py-3 px-3">Model Confidence</th>
-                <th className="py-3 px-3">Analyzed</th>
-                <th className="py-3 px-3 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800/50 text-sm">
-              {filteredRecords.map((item) => (
-                <tr
-                  key={item.id}
-                  onClick={() => setSelectedRecord(item)}
-                  className="group hover:bg-slate-800/40 transition-colors cursor-pointer"
-                >
-                  <td className="py-3.5 px-3">
-                    <div className="flex items-center gap-2">
-                      <FileText className="w-4 h-4 text-cyan-400 shrink-0" />
-                      <span className="font-mono font-semibold text-white group-hover:text-cyan-300 text-xs sm:text-sm">
-                        {item.datasetName}
-                      </span>
-                    </div>
-                  </td>
-
-                  <td className="py-3.5 px-3 text-xs text-slate-300 max-w-[200px] truncate">
-                    {item.deviceType}
-                  </td>
-
-                  <td className="py-3.5 px-3 text-right font-mono text-xs text-slate-300 tabular-nums">
-                    {item.recordsCount.toLocaleString()}
-                  </td>
-
-                  <td className="py-3.5 px-3 whitespace-nowrap">
-                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded text-xs font-medium ${
-                      item.deviceStatus === 'Normal'
-                        ? 'bg-emerald-950/40 text-emerald-300 border border-emerald-500/30'
-                        : item.deviceStatus === 'Possible Anomaly'
-                        ? 'bg-amber-950/40 text-amber-300 border border-amber-500/30'
-                        : 'bg-red-950/40 text-red-300 border border-red-500/30'
-                    }`}>
-                      <span className={`w-1.5 h-1.5 rounded-full ${
-                        item.deviceStatus === 'Normal' ? 'bg-emerald-400' : item.deviceStatus === 'Possible Anomaly' ? 'bg-amber-400' : 'bg-red-400'
-                      }`} />
-                      {item.deviceStatus}
-                    </span>
-                  </td>
-
-                  <td className="py-3.5 px-3 whitespace-nowrap text-xs font-medium">
-                    <span className={item.patientRisk === 'Low' ? 'text-emerald-400' : item.patientRisk === 'Moderate' ? 'text-amber-400' : 'text-red-400 font-bold'}>
-                      {item.patientRisk}
-                    </span>
-                  </td>
-
-                  <td className="py-3.5 px-3 whitespace-nowrap">
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono text-xs font-bold text-white tabular-nums w-12">
-                        {item.confidence.toFixed(1)}%
-                      </span>
-                      <div className="w-16 h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                        <div 
-                          className="h-full bg-cyan-400" 
-                          style={{ width: `${item.confidence}%` }} 
-                        />
-                      </div>
-                    </div>
-                  </td>
-
-                  <td className="py-3.5 px-3 whitespace-nowrap text-xs text-slate-400 font-mono">
-                    {item.analyzedAt}
-                  </td>
-
-                  <td className="py-3.5 px-3 text-right whitespace-nowrap">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onSelectRecordForReport(item);
-                      }}
-                      className="px-2.5 py-1 rounded text-xs font-medium text-cyan-400 hover:text-white hover:bg-cyan-600/30 border border-transparent hover:border-cyan-500/30 transition-all cursor-pointer"
-                    >
-                      Open Full Report
-                    </button>
-                  </td>
+        {loading ? (
+          <div className="flex items-center justify-center py-12 space-x-3">
+            <RefreshCw className="w-5 h-5 text-cyan-400 animate-spin" />
+            <span className="text-xs text-slate-400 font-mono">Fetching analysis logs from SQLite storage...</span>
+          </div>
+        ) : filteredRecords.length === 0 ? (
+          <div className="text-center py-12 space-y-2">
+            <p className="text-sm font-semibold text-white">No analysis records match your query.</p>
+            <p className="text-xs text-slate-400">Clear filters or ingest a dataset to generate fresh telemetry predictions.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto -mx-5 px-5">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-slate-800/80 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                  <th className="py-3 px-3">Dataset Name & Equipment</th>
+                  <th className="py-3 px-3 text-right">Samples</th>
+                  <th className="py-3 px-3">Device Status</th>
+                  <th className="py-3 px-3">Patient Risk</th>
+                  <th className="py-3 px-3">Model Confidence</th>
+                  <th className="py-3 px-3">Execution Timestamp</th>
+                  <th className="py-3 px-3 text-right">Action</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60">
+                {filteredRecords.map((item) => (
+                  <tr 
+                    key={item.id}
+                    onClick={() => setSelectedRecord(item)}
+                    className="hover:bg-slate-800/40 transition-colors group cursor-pointer"
+                  >
+                    <td className="py-3.5 px-3">
+                      <div className="flex items-center gap-2.5">
+                        <div className="p-2 rounded-lg bg-slate-900 border border-slate-800 text-cyan-400 group-hover:border-cyan-500/40">
+                          <FileText className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <span className="font-mono text-xs font-bold text-white group-hover:text-cyan-300 block">
+                            {item.datasetName}
+                          </span>
+                          <span className="text-[11px] text-slate-400 block mt-0.5">
+                            {item.deviceType}
+                          </span>
+                        </div>
+                      </div>
+                    </td>
+
+                    <td className="py-3.5 px-3 text-right whitespace-nowrap font-mono text-xs text-slate-300">
+                      {item.recordsCount.toLocaleString()}
+                    </td>
+
+                    <td className="py-3.5 px-3 whitespace-nowrap">
+                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium ${
+                        item.deviceStatus === 'Normal'
+                          ? 'bg-emerald-950/40 text-emerald-300 border border-emerald-500/30'
+                          : item.deviceStatus === 'Possible Anomaly'
+                          ? 'bg-amber-950/40 text-amber-300 border border-amber-500/30'
+                          : 'bg-red-950/40 text-red-300 border border-red-500/30'
+                      }`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${
+                          item.deviceStatus === 'Normal' ? 'bg-emerald-400' : item.deviceStatus === 'Possible Anomaly' ? 'bg-amber-400' : 'bg-red-400'
+                        }`} />
+                        {item.deviceStatus}
+                      </span>
+                    </td>
+
+                    <td className="py-3.5 px-3 whitespace-nowrap text-xs font-medium">
+                      <span className={item.patientRisk === 'Low' ? 'text-emerald-400' : item.patientRisk === 'Moderate' ? 'text-amber-400' : 'text-red-400 font-bold'}>
+                        {item.patientRisk} Risk
+                      </span>
+                    </td>
+
+                    <td className="py-3.5 px-3 whitespace-nowrap">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-xs font-bold text-white tabular-nums w-12">
+                          {item.confidence.toFixed(1)}%
+                        </span>
+                        <div className="w-16 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-cyan-400" 
+                            style={{ width: `${item.confidence}%` }} 
+                          />
+                        </div>
+                      </div>
+                    </td>
+
+                    <td className="py-3.5 px-3 whitespace-nowrap text-xs text-slate-400 font-mono">
+                      {item.analyzedAt}
+                    </td>
+
+                    <td className="py-3.5 px-3 text-right whitespace-nowrap">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onSelectRecordForReport(item);
+                        }}
+                        className="px-2.5 py-1 rounded text-xs font-medium text-cyan-400 hover:text-white hover:bg-cyan-600/30 border border-transparent hover:border-cyan-500/30 transition-all cursor-pointer"
+                      >
+                        Open Full Report
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Record Inspection Slide-Over / Modal */}
