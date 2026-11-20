@@ -5,10 +5,12 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 UPLOAD_DIR = BASE_DIR / "data" / "uploads"
 SAMPLES_DIR = BASE_DIR / "data" / "samples"
 STORAGE_DIR = BASE_DIR / "data" / "storage"
+MODELS_DIR = BASE_DIR / "models"
 
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 SAMPLES_DIR.mkdir(parents=True, exist_ok=True)
 STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
 CORS_ORIGINS = [
     "http://localhost:3000",

@@ -40,27 +40,81 @@ ALARM_TYPES = [
 
 # Locate saved model artifact
 BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent
-MODEL_PATH = BASE_DIR / "data_local" / "icu_alarm_model.joblib"
+
+
+def resolve_icu_model_path(custom_path: Optional[Path] = None) -> Optional[Path]:
+    """
+    Resolves the ICU alarm model artifact path with robust fallbacks:
+    1. Explicit custom_path argument
+    2. ICU_MODEL_PATH environment variable
+    3. backend/models/icu_alarm_model.joblib (standard deployment directory)
+    4. data_local/icu_alarm_model.joblib (local dev directory)
+    5. CWD-relative fallbacks
+    """
+    if custom_path:
+        p = Path(custom_path)
+        if p.exists():
+            return p
+
+    env_path = os.environ.get("ICU_MODEL_PATH")
+    if env_path:
+        p = Path(env_path)
+        if p.exists():
+            return p
+
+    # backend/models/icu_alarm_model.joblib
+    deployment_path = Path(__file__).resolve().parent.parent.parent / "models" / "icu_alarm_model.joblib"
+    if deployment_path.exists():
+        return deployment_path
+
+    # data_local/icu_alarm_model.joblib
+    local_dev_path = Path(__file__).resolve().parent.parent.parent.parent / "data_local" / "icu_alarm_model.joblib"
+    if local_dev_path.exists():
+        return local_dev_path
+
+    # CWD fallbacks
+    for cand in [
+        Path.cwd() / "models" / "icu_alarm_model.joblib",
+        Path.cwd() / "backend" / "models" / "icu_alarm_model.joblib",
+        Path.cwd() / "data_local" / "icu_alarm_model.joblib",
+    ]:
+        if cand.exists():
+            return cand
+
+    return deployment_path
 
 
 class ICUAlarmClassifier:
     def __init__(self, model_path: Optional[Path] = None):
-        self.model_path = model_path or MODEL_PATH
+        self.model_path = resolve_icu_model_path(model_path)
         self.artifact = None
         self.model = None
         self.feature_names = None
         self.test_metrics = None
+        self.is_available = False
+        self.unavailable_reason: Optional[str] = None
         self._load_model()
 
     def _load_model(self):
-        if not self.model_path.exists():
-            raise FileNotFoundError(
-                f"ICU Alarm model artifact not found at {self.model_path}. Run training first."
+        if not self.model_path or not self.model_path.exists():
+            self.is_available = False
+            self.unavailable_reason = (
+                "ICU Alarm Verification model artifact not found. "
+                "Expected at backend/models/icu_alarm_model.joblib or data_local/icu_alarm_model.joblib, "
+                "or configured via ICU_MODEL_PATH."
             )
-        self.artifact = joblib.load(self.model_path)
-        self.model = self.artifact["model"]
-        self.feature_names = self.artifact["feature_names"]
-        self.test_metrics = self.artifact.get("test_metrics", {})
+            return
+
+        try:
+            self.artifact = joblib.load(self.model_path)
+            self.model = self.artifact["model"]
+            self.feature_names = self.artifact["feature_names"]
+            self.test_metrics = self.artifact.get("test_metrics", {})
+            self.is_available = True
+            self.unavailable_reason = None
+        except Exception as e:
+            self.is_available = False
+            self.unavailable_reason = f"Failed to load ICU alarm model artifact ({self.model_path}): {str(e)}"
 
     def parse_header_text(self, hea_text: str) -> Dict[str, Any]:
         """Parses PhysioNet .hea WFDB header text."""
@@ -367,6 +421,11 @@ class ICUAlarmClassifier:
         Executes end-to-end inference using the trained Random Forest model.
         Returns a complete AnalysisResponse compatible with the MedFault UI.
         """
+        if not self.is_available or self.model is None:
+            raise RuntimeError(
+                self.unavailable_reason or "ICU Alarm Verification model is currently unavailable."
+            )
+
         t0 = time.time()
         header_info = self.parse_header_text(hea_content)
 

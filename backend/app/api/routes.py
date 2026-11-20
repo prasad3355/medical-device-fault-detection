@@ -12,7 +12,7 @@ from app.core.config import UPLOAD_DIR, SAMPLES_DIR, BASE_DIR
 from app.core.validation import parse_dataset_bytes, validate_dataframe
 from app.ml.detector import MedicalFaultAndRiskDetector
 from app.ml.icu_alarm_classifier import icu_classifier
-from app.ml.ppg_quality_classifier import PPGQualityClassifier
+from app.ml.ppg_quality_classifier import ppg_classifier, PPGQualityClassifier
 from app.storage.repository import repository
 from app.api.schemas import (
     ValidationResult,
@@ -27,20 +27,20 @@ from app.api.schemas import (
 
 router = APIRouter(prefix="/api")
 detector = MedicalFaultAndRiskDetector()
-try:
-    ppg_classifier = PPGQualityClassifier()
-except Exception as e:
-    ppg_classifier = None
 
 @router.get("/health")
 def health_check():
+    icu_status = "Active" if (icu_classifier and icu_classifier.is_available) else "Unavailable"
+    ppg_status = "Active" if (ppg_classifier and ppg_classifier.is_available) else "Unavailable"
     return {
         "status": "healthy",
         "service": "MedFault AI Backend & Deep Learning Engine",
         "version": "1.0.0",
         "mlModel": "1D-CNN + BiLSTM Temporal Ensemble",
         "deviceAnomalyDetection": "Active",
-        "patientRiskAnalysis": "Active"
+        "patientRiskAnalysis": "Active",
+        "icuAlarmModel": icu_status,
+        "ppgQualityModel": ppg_status,
     }
 
 @router.post("/upload", response_model=ValidationResult)
@@ -177,6 +177,12 @@ async def analyze_dataset(request: AnalysisRequest):
     # 1. ICU Alarm Verification Mode (PhysioNet 2015 Random Forest)
     # -------------------------------------------------------------
     if request.mode == "icu_alarm":
+        if not icu_classifier or not icu_classifier.is_available:
+            raise HTTPException(
+                status_code=503,
+                detail=f"ICU Alarm Verification is currently unavailable: {icu_classifier.unavailable_reason if icu_classifier else 'Model not initialized'}"
+            )
+
         # Resolve record stem from request.fileName or request.datasetId
         record_stem = None
         hea_content = None
@@ -503,17 +509,34 @@ def get_simulation_t108s():
     executes the trained Random Forest classifier on the 30 seconds before the alarm.
     Provides local, database-free simulated telemetry monitoring for academic demonstration.
     """
+    if not icu_classifier or not icu_classifier.is_available:
+        raise HTTPException(
+            status_code=503,
+            detail=f"ICU Alarm Verification is currently unavailable: {icu_classifier.unavailable_reason if icu_classifier else 'Model not initialized'}"
+        )
+
     hea_path = SAMPLES_DIR / "t108s.hea"
     mat_path = SAMPLES_DIR / "t108s.mat"
 
     if not hea_path.exists() or not mat_path.exists():
-        alt_hea = BASE_DIR / "data_local" / "physionet-2015" / "training" / "t108s.hea"
-        alt_mat = BASE_DIR / "data_local" / "physionet-2015" / "training" / "t108s.mat"
-        if alt_hea.exists() and alt_mat.exists():
-            hea_path = alt_hea
-            mat_path = alt_mat
-        else:
-            raise HTTPException(status_code=404, detail="Built-in t108s recording files not found on server.")
+        alt_dirs = [
+            BASE_DIR.parent / "data_local" / "physionet-2015" / "training",
+            BASE_DIR.parent / "data_local" / "physionet-2015",
+            Path.cwd() / "data_local" / "physionet-2015" / "training",
+            Path.cwd() / "data_local" / "physionet-2015",
+        ]
+        found = False
+        for ad in alt_dirs:
+            if (ad / "t108s.hea").exists() and (ad / "t108s.mat").exists():
+                hea_path = ad / "t108s.hea"
+                mat_path = ad / "t108s.mat"
+                found = True
+                break
+        if not found:
+            raise HTTPException(
+                status_code=404,
+                detail="Preset recording 't108s' (.hea + .mat) is not available on this server deployment. Upload an ICU alarm pair to verify alarms."
+            )
 
     with open(hea_path, "r", encoding="utf-8", errors="ignore") as f:
         hea_content = f.read()
@@ -552,11 +575,16 @@ def get_simulation_ppg(case: str = Query("good", description="good or poor")):
     and executes the trained Random Forest classifier on the 15 domain-specific features.
     Provides local, database-free simulated PPG monitoring for sensor signal quality verification.
     """
-    if ppg_classifier is None:
-        raise HTTPException(status_code=500, detail="PPG Quality Classifier is not initialized.")
+    if ppg_classifier is None or not ppg_classifier.is_available:
+        raise HTTPException(
+            status_code=503,
+            detail=f"PPG Quality Classifier is currently unavailable: {ppg_classifier.unavailable_reason if ppg_classifier else 'Model not initialized'}"
+        )
     try:
         result = ppg_classifier.load_case(case)
         return result
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to load PPG simulation case: {str(e)}")
 

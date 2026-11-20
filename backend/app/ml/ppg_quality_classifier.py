@@ -4,10 +4,14 @@ Uses the trained Random Forest model on the BUT PPG dataset.
 Evaluates 15 domain-specific physiological and spectral features.
 """
 
+import os
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 import numpy as np
-import wfdb
+try:
+    import wfdb
+except ImportError:
+    wfdb = None
 from scipy import signal, stats
 import joblib
 
@@ -27,9 +31,51 @@ except ModuleNotFoundError:
     )
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent
-MODEL_PATH = BASE_DIR / "data_local" / "ppg_quality_model.joblib"
 SAMPLES_DIR = BASE_DIR / "backend" / "data" / "samples"
 BUT_PPG_DIR = BASE_DIR / "data_local" / "butppg" / "brno-university-of-technology-smartphone-ppg-database-but-ppg-2.0.0"
+
+
+def resolve_ppg_model_path(custom_path: Optional[Path] = None) -> Optional[Path]:
+    """
+    Resolves the PPG quality model artifact path with robust fallbacks:
+    1. Explicit custom_path argument
+    2. PPG_MODEL_PATH environment variable
+    3. backend/models/ppg_quality_model.joblib (standard deployment directory)
+    4. data_local/ppg_quality_model.joblib (local dev directory)
+    5. CWD-relative fallbacks
+    """
+    if custom_path:
+        p = Path(custom_path)
+        if p.exists():
+            return p
+
+    env_path = os.environ.get("PPG_MODEL_PATH")
+    if env_path:
+        p = Path(env_path)
+        if p.exists():
+            return p
+
+    # backend/models/ppg_quality_model.joblib
+    deployment_path = Path(__file__).resolve().parent.parent.parent / "models" / "ppg_quality_model.joblib"
+    if deployment_path.exists():
+        return deployment_path
+
+    # data_local/ppg_quality_model.joblib
+    local_dev_path = Path(__file__).resolve().parent.parent.parent.parent / "data_local" / "ppg_quality_model.joblib"
+    if local_dev_path.exists():
+        return local_dev_path
+
+    # CWD fallbacks
+    for cand in [
+        Path.cwd() / "models" / "ppg_quality_model.joblib",
+        Path.cwd() / "backend" / "models" / "ppg_quality_model.joblib",
+        Path.cwd() / "data_local" / "ppg_quality_model.joblib",
+    ]:
+        if cand.exists():
+            return cand
+
+    return deployment_path
+
 
 FEATURE_NAMES = [
     "std",
@@ -52,22 +98,37 @@ FEATURE_NAMES = [
 
 class PPGQualityClassifier:
     def __init__(self, model_path: Optional[Path] = None):
-        self.model_path = model_path or MODEL_PATH
+        self.model_path = resolve_ppg_model_path(model_path)
         self.artifact = None
         self.model = None
         self.feature_names = None
         self.metrics = None
         self.heldout_cases = None
+        self.is_available = False
+        self.unavailable_reason: Optional[str] = None
         self._load_model()
 
     def _load_model(self):
-        if not self.model_path.exists():
-            raise FileNotFoundError(f"PPG Quality model not found at {self.model_path}. Run train_ppg_quality.py.")
-        self.artifact = joblib.load(self.model_path)
-        self.model = self.artifact["model"]
-        self.feature_names = self.artifact.get("feature_names", FEATURE_NAMES)
-        self.metrics = self.artifact.get("metrics", {})
-        self.heldout_cases = self.artifact.get("heldout_cases", {})
+        if not self.model_path or not self.model_path.exists():
+            self.is_available = False
+            self.unavailable_reason = (
+                "PPG Quality model artifact not found. "
+                "Expected at backend/models/ppg_quality_model.joblib or data_local/ppg_quality_model.joblib, "
+                "or configured via PPG_MODEL_PATH."
+            )
+            return
+
+        try:
+            self.artifact = joblib.load(self.model_path)
+            self.model = self.artifact["model"]
+            self.feature_names = self.artifact.get("feature_names", FEATURE_NAMES)
+            self.metrics = self.artifact.get("metrics", {})
+            self.heldout_cases = self.artifact.get("heldout_cases", {})
+            self.is_available = True
+            self.unavailable_reason = None
+        except Exception as e:
+            self.is_available = False
+            self.unavailable_reason = f"Failed to load PPG quality model artifact ({self.model_path}): {str(e)}"
 
     @staticmethod
     def extract_features(sig: np.ndarray, fs: float = 30.0) -> Dict[str, float]:
@@ -146,6 +207,11 @@ class PPGQualityClassifier:
         Runs Random Forest classification on 10s PPG signal.
         Returns prediction ("Good" vs "Poor signal quality — check sensor"), confidence, and telemetry points.
         """
+        if not self.is_available or self.model is None:
+            raise RuntimeError(
+                self.unavailable_reason or "PPG Quality Classifier is currently unavailable."
+            )
+
         feats = self.extract_features(sig, fs=fs)
         feat_vector = np.array([[feats[f] for f in self.feature_names]], dtype=np.float32)
 
@@ -238,23 +304,54 @@ class PPGQualityClassifier:
         """
         Loads one held-out good case (ID 109003) or one held-out poor case (ID 100004).
         """
-        target_id = self.heldout_cases.get(f"{case_type.lower()}_id", "109003" if case_type.lower() == "good" else "100004")
+        if not self.is_available:
+            raise RuntimeError(
+                self.unavailable_reason or "PPG Quality Classifier is currently unavailable."
+            )
+
+        target_id = (self.heldout_cases or {}).get(f"{case_type.lower()}_id", "109003" if case_type.lower() == "good" else "100004")
         
-        # Try samples directory first
-        sample_path = SAMPLES_DIR / f"{target_id}_PPG"
-        alt_path = BUT_PPG_DIR / target_id / f"{target_id}_PPG"
+        # Look for the recording in multiple candidate locations
+        cand_dirs = [
+            SAMPLES_DIR,
+            BUT_PPG_DIR / target_id,
+            BUT_PPG_DIR,
+            Path(__file__).resolve().parent.parent.parent.parent / "data_local" / "butppg" / "brno-university-of-technology-smartphone-ppg-database-but-ppg-2.0.0" / target_id,
+        ]
         
-        load_path = str(sample_path) if sample_path.with_suffix(".hea").exists() else str(alt_path)
+        load_path = None
+        for d in cand_dirs:
+            p = d / f"{target_id}_PPG"
+            if p.with_suffix(".hea").exists() or p.with_suffix(".dat").exists():
+                load_path = p
+                break
+
+        if not load_path:
+            raise FileNotFoundError(
+                f"Preset PPG recording for case '{case_type}' (ID: {target_id}) was not found on this server."
+            )
         
-        try:
-            rec = wfdb.rdrecord(load_path)
-            sig = rec.p_signal.flatten() if rec.p_signal is not None else rec.d_signal.flatten()
-            fs = float(rec.fs)
-        except Exception:
-            # Fallback to direct .dat reading
-            dat_path = sample_path.with_suffix(".dat") if sample_path.with_suffix(".dat").exists() else alt_path.with_suffix(".dat")
+        sig = None
+        fs = 30.0
+
+        if wfdb is not None and load_path.with_suffix(".hea").exists():
+            try:
+                rec = wfdb.rdrecord(str(load_path))
+                sig = rec.p_signal.flatten() if rec.p_signal is not None else rec.d_signal.flatten()
+                fs = float(rec.fs)
+            except Exception:
+                sig = None
+
+        if sig is None:
+            dat_path = load_path.with_suffix(".dat")
+            if not dat_path.exists():
+                raise FileNotFoundError(f"Binary waveform file {dat_path} not found.")
             raw = np.fromfile(dat_path, dtype=np.int16)
             sig = raw.astype(np.float64)
             fs = 30.0
 
         return self.predict_ppg_signal(sig, fs=fs, record_id=target_id)
+
+
+# Singleton classifier instance
+ppg_classifier = PPGQualityClassifier()
