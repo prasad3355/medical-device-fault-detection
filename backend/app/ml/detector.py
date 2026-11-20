@@ -268,11 +268,14 @@ class MedicalFaultAndRiskDetector:
             "flowRate": round(float(cleaned_df["flowRate"].mean()), 1),
         }
 
+        is_icu_synth = "icu" in dataset_name.lower() or "synthetic" in dataset_name.lower()
+        dev_type = "Synthetic ICU telemetry" if is_icu_synth else "Multi-parameter Medical Monitor"
+
         record = AnalysisRecord(
             id=f"rec-{uuid.uuid4().hex[:8]}",
             datasetName=dataset_name,
             recordsCount=num_rows,
-            deviceType="Multi-parameter Medical Monitor",
+            deviceType=dev_type,
             deviceStatus=device_status,
             patientRisk=patient_risk,
             confidence=combined_conf,

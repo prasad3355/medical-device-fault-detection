@@ -91,6 +91,38 @@ export async function uploadDatasetFile(file: File): Promise<ValidationResult> {
 }
 
 /**
+ * Upload a PhysioNet WFDB .hea header and .mat waveform binary pair for ICU Alarm Verification.
+ */
+export async function uploadAlarmPair(heaFile: File, matFile: File): Promise<ValidationResult> {
+  const formData = new FormData();
+  formData.append('hea_file', heaFile);
+  formData.append('mat_file', matFile);
+
+  try {
+    const res = await fetch(`${API_BASE}/upload-alarm-pair`, {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!res.ok) {
+      let errorMsg = `Upload failed (${res.status} ${res.statusText})`;
+      try {
+        const err = await res.json();
+        errorMsg = err.detail || errorMsg;
+      } catch {}
+      throw new Error(errorMsg);
+    }
+
+    return res.json();
+  } catch (err: any) {
+    if (err.name === 'TypeError' && err.message?.includes('fetch')) {
+      throw new Error(`Network error connecting to ${API_BASE}/upload-alarm-pair. Ensure the FastAPI backend is running on port 8000.`);
+    }
+    throw err;
+  }
+}
+
+/**
  * Execute deep learning fault and risk analysis on an uploaded or preset dataset.
  */
 export async function analyzeDataset(params: {
@@ -151,6 +183,7 @@ export async function fetchAnalysisHistory(): Promise<AnalysisRecord[]> {
   return res.json();
 }
 
+
 /**
  * Retrieve a full analysis result by its run ID.
  */
@@ -208,3 +241,85 @@ export async function checkBackendHealth(): Promise<{ status: string; service: s
   }
   return res.json();
 }
+
+
+export interface SimulationData {
+  record: AnalysisRecord;
+  anomalies: DetectedAnomaly[];
+  telemetry: TelemetryPoint[];
+  alarmType: string;
+  trueAlarm: boolean;
+  prediction: string;
+  confidence: number;
+  patientRisk: string;
+  preAlarmSeconds: number;
+  totalSamples: number;
+  samplingFrequency: number;
+  sampleCount: number;
+  alarmTimestamp: string;
+}
+
+/**
+ * Fetch simulated monitoring data for PhysioNet t108s ECG recording.
+ * Replays without a file upload and runs Random Forest inference on the pre-alarm window.
+ */
+export async function fetchSimulatedMonitoring(): Promise<SimulationData> {
+  const res = await fetch(`${API_BASE}/simulation/t108s`, {
+    cache: 'no-store',
+  });
+  if (!res.ok) {
+    let errorMsg = `Simulation request failed (${res.status} ${res.statusText})`;
+    try {
+      const err = await res.json();
+      errorMsg = err.detail || errorMsg;
+    } catch {}
+    throw new Error(errorMsg);
+  }
+  return res.json();
+}
+
+export interface PPGSimulationData {
+  record: AnalysisRecord;
+  anomalies: DetectedAnomaly[];
+  telemetry: TelemetryPoint[];
+  prediction: string;
+  isGood: boolean;
+  confidence: number;
+  probGood: number;
+  probPoor: number;
+  cardiacSqi: number;
+  autocorrPeak: number;
+  heartRate: number;
+  recordId: string;
+  samplingFrequency: number;
+  durationSec: number;
+  metrics: {
+    accuracy: number;
+    recall_poor: number;
+    recall_good: number;
+    f1_poor: number;
+    confusion_matrix: number[][];
+  };
+}
+
+/**
+ * Fetch simulated PPG sensor signal quality monitoring data (Good vs Poor case).
+ * Replays without a file upload and runs Random Forest inference on the 15 PPG features.
+ */
+export async function fetchPPGSimulation(caseType: 'good' | 'poor' = 'good'): Promise<PPGSimulationData> {
+  const res = await fetch(`${API_BASE}/simulation/ppg?case=${caseType}`, {
+    cache: 'no-store',
+  });
+  if (!res.ok) {
+    let errorMsg = `PPG Simulation request failed (${res.status} ${res.statusText})`;
+    try {
+      const err = await res.json();
+      errorMsg = err.detail || errorMsg;
+    } catch {}
+    throw new Error(errorMsg);
+  }
+  return res.json();
+}
+
+
+

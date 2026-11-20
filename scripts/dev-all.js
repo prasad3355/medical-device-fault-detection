@@ -17,10 +17,10 @@ function killPort(port) {
         if (pid && pid !== '0' && !isNaN(pid) && parseInt(pid, 10) !== process.pid) {
           try {
             execSync(`taskkill /pid ${pid} /f /t`, { stdio: 'ignore' });
-          } catch {}
+          } catch { }
         }
       }
-    } catch {}
+    } catch { }
   }
 }
 
@@ -34,7 +34,10 @@ killPort(3000);
 killPort(8000);
 
 // 1. Start Backend (FastAPI / Uvicorn)
-const backendCmd = isWindows ? 'python' : 'python3';
+const venvPython = isWindows
+  ? path.join(rootDir, '.venv', 'Scripts', 'python.exe')
+  : path.join(rootDir, '.venv', 'bin', 'python');
+const backendCmd = fs.existsSync(venvPython) ? venvPython : (isWindows ? 'python' : 'python3');
 const backendArgs = ['-m', 'uvicorn', 'app.main:app', '--host', '0.0.0.0', '--port', '8000', '--reload'];
 const backendProcess = spawn(backendCmd, backendArgs, {
   cwd: path.join(rootDir, 'backend'),
@@ -78,21 +81,21 @@ frontendProcess.stderr.on('data', (data) => {
 // Clean shutdown handler
 function shutdown() {
   console.log('\n\x1b[33m%s\x1b[0m', 'Shutting down MedFault AI services...');
-  
+
   if (isWindows) {
     if (backendProcess && backendProcess.pid) {
-      try { spawn('taskkill', ['/pid', backendProcess.pid, '/f', '/t'], { stdio: 'ignore' }); } catch {}
+      try { spawn('taskkill', ['/pid', backendProcess.pid, '/f', '/t'], { stdio: 'ignore' }); } catch { }
     }
     if (frontendProcess && frontendProcess.pid) {
-      try { spawn('taskkill', ['/pid', frontendProcess.pid, '/f', '/t'], { stdio: 'ignore' }); } catch {}
+      try { spawn('taskkill', ['/pid', frontendProcess.pid, '/f', '/t'], { stdio: 'ignore' }); } catch { }
     }
     killPort(3000);
     killPort(8000);
   } else {
-    try { backendProcess.kill('SIGTERM'); } catch {}
-    try { frontendProcess.kill('SIGTERM'); } catch {}
+    try { backendProcess.kill('SIGTERM'); } catch { }
+    try { frontendProcess.kill('SIGTERM'); } catch { }
   }
-  
+
   setTimeout(() => {
     process.exit(0);
   }, 1000);

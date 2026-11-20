@@ -1,10 +1,10 @@
-export type NavigationRoute = 
-  | 'dashboard' 
-  | 'upload' 
-  | 'analysis' 
-  | 'history' 
-  | 'models' 
-  | 'pipeline' 
+export type NavigationRoute =
+  | 'dashboard'
+  | 'upload'
+  | 'analysis'
+  | 'history'
+  | 'models'
+  | 'pipeline'
   | 'about';
 
 export type DeviceFaultStatus = 'Normal' | 'Possible Anomaly' | 'Fault Detected' | 'Not assessed' | 'True Alarm' | 'False Alarm';

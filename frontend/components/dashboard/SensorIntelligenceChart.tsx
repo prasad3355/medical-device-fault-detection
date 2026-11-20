@@ -16,11 +16,17 @@ import { AlertCircle, SlidersHorizontal, Info, Eye, Layers } from 'lucide-react'
 interface SensorIntelligenceChartProps {
   telemetry: TelemetryPoint[];
   onSelectAnomalyInterval?: (intervalName: string) => void;
+  isSimulationMode?: boolean;
+  simulationTitle?: string;
+  simulationBadge?: string;
 }
 
 export const SensorIntelligenceChart: React.FC<SensorIntelligenceChartProps> = ({
   telemetry,
-  onSelectAnomalyInterval
+  onSelectAnomalyInterval,
+  isSimulationMode = false,
+  simulationTitle,
+  simulationBadge
 }) => {
   const [activeChannel, setActiveChannel] = useState<'all' | 'spo2' | 'heartRate' | 'temperature' | 'pressure'>('all');
   const [showAnomalyShading, setShowAnomalyShading] = useState<boolean>(true);
@@ -32,23 +38,28 @@ export const SensorIntelligenceChart: React.FC<SensorIntelligenceChartProps> = (
       return (
         <div className="bg-[#091122]/95 backdrop-blur-md border border-cyan-500/30 rounded-lg p-3 shadow-xl shadow-black/60 text-xs font-mono">
           <div className="flex items-center justify-between gap-4 pb-1.5 border-b border-slate-800 text-slate-400">
-            <span className="font-semibold text-slate-200">Timestamp: {label}</span>
+            <span className="font-semibold text-slate-200">
+              {isSimulationMode ? `Pre-Alarm Time: ${label}` : `Timestamp: ${label}`}
+            </span>
             {dataPoint.isAnomaly && (
               <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
                 dataPoint.severity === 'critical' ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
               }`}>
-                {dataPoint.anomalyType || 'ANOMALY DETECTED'}
+                {dataPoint.anomalyType || (isSimulationMode ? 'TACHYCARDIA CRITICAL' : 'ANOMALY DETECTED')}
               </span>
             )}
           </div>
 
           <div className="mt-2 space-y-1">
-            {(activeChannel === 'all' || activeChannel === 'spo2') && (
+            {(activeChannel === 'all' || activeChannel === 'pressure') && (
               <div className="flex items-center justify-between gap-4">
-                <span className="text-cyan-400 flex items-center gap-1.5 font-sans font-medium">
-                  <span className="w-2 h-2 rounded-full bg-cyan-400"></span> SpO₂:
+                <span className={`${isSimulationMode ? 'text-emerald-400' : 'text-blue-400'} flex items-center gap-1.5 font-sans font-medium`}>
+                  <span className={`w-2 h-2 rounded-full ${isSimulationMode ? 'bg-emerald-400' : 'bg-blue-400'}`}></span> 
+                  {isSimulationMode ? 'ECG Lead II:' : 'Airway Pressure:'}
                 </span>
-                <span className="font-bold text-white tabular-nums">{dataPoint.spo2.toFixed(1)}%</span>
+                <span className="font-bold text-white tabular-nums">
+                  {dataPoint.pressure.toFixed(3)} {isSimulationMode ? 'mV' : 'cmH₂O'}
+                </span>
               </div>
             )}
 
@@ -61,21 +72,21 @@ export const SensorIntelligenceChart: React.FC<SensorIntelligenceChartProps> = (
               </div>
             )}
 
-            {(activeChannel === 'all' || activeChannel === 'temperature') && (
+            {(activeChannel === 'all' || activeChannel === 'spo2') && (
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-cyan-400 flex items-center gap-1.5 font-sans font-medium">
+                  <span className="w-2 h-2 rounded-full bg-cyan-400"></span> SpO₂:
+                </span>
+                <span className="font-bold text-white tabular-nums">{dataPoint.spo2.toFixed(1)}%</span>
+              </div>
+            )}
+
+            {!isSimulationMode && (activeChannel === 'all' || activeChannel === 'temperature') && (
               <div className="flex items-center justify-between gap-4">
                 <span className="text-amber-400 flex items-center gap-1.5 font-sans font-medium">
                   <span className="w-2 h-2 rounded-full bg-amber-400"></span> Temperature:
                 </span>
                 <span className="font-bold text-white tabular-nums">{dataPoint.temperature.toFixed(1)}°C</span>
-              </div>
-            )}
-
-            {(activeChannel === 'all' || activeChannel === 'pressure') && (
-              <div className="flex items-center justify-between gap-4">
-                <span className="text-blue-400 flex items-center gap-1.5 font-sans font-medium">
-                  <span className="w-2 h-2 rounded-full bg-blue-400"></span> Airway Pressure:
-                </span>
-                <span className="font-bold text-white tabular-nums">{dataPoint.pressure.toFixed(1)} cmH₂O</span>
               </div>
             )}
           </div>
@@ -84,6 +95,19 @@ export const SensorIntelligenceChart: React.FC<SensorIntelligenceChartProps> = (
     }
     return null;
   };
+
+  const channelOptions = isSimulationMode ? [
+    { id: 'all', label: 'All Signals' },
+    { id: 'pressure', label: 'ECG Lead II (mV)' },
+    { id: 'heartRate', label: 'Heart Rate' },
+    { id: 'spo2', label: 'SpO₂' }
+  ] : [
+    { id: 'all', label: 'All Channels' },
+    { id: 'spo2', label: 'SpO₂' },
+    { id: 'heartRate', label: 'Heart Rate' },
+    { id: 'temperature', label: 'Temp' },
+    { id: 'pressure', label: 'Pressure' }
+  ];
 
   return (
     <div className="relative rounded-xl border border-slate-800/80 bg-gradient-to-b from-[#091122]/90 to-[#060a13] p-5 shadow-xl">
@@ -95,27 +119,27 @@ export const SensorIntelligenceChart: React.FC<SensorIntelligenceChartProps> = (
         <div>
           <div className="flex items-center gap-2">
             <h2 className="text-base font-bold text-white tracking-tight">
-              Sensor Intelligence
+              {simulationTitle || "Sensor Intelligence"}
             </h2>
-            <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-[11px] font-medium text-amber-400">
+            <div className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium ${
+              isSimulationMode 
+                ? 'bg-purple-500/10 border border-purple-500/30 text-purple-300' 
+                : 'bg-amber-500/10 border border-amber-500/20 text-amber-400'
+            }`}>
               <AlertCircle className="w-3 h-3" />
-              <span>3 anomalous intervals detected</span>
+              <span>{simulationBadge || (isSimulationMode ? "PhysioNet t108s Replay" : "3 anomalous intervals detected")}</span>
             </div>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            Multi-channel physiological telemetry from uploaded dataset · Offline diagnostic evaluation
+            {isSimulationMode 
+              ? "Replaying PhysioNet 2015 t108s ECG waveform (Lead II) · Pre-alarm observation window leading up to recorded Tachycardia event"
+              : "Multi-channel physiological telemetry from uploaded dataset · Offline diagnostic evaluation"}
           </p>
         </div>
 
         {/* Channel Selectors */}
         <div className="flex items-center gap-1 p-1 bg-slate-900/90 rounded-lg border border-slate-800 self-start sm:self-auto overflow-x-auto max-w-full">
-          {[
-            { id: 'all', label: 'All Channels' },
-            { id: 'spo2', label: 'SpO₂' },
-            { id: 'heartRate', label: 'Heart Rate' },
-            { id: 'temperature', label: 'Temp' },
-            { id: 'pressure', label: 'Pressure' }
-          ].map((ch) => (
+          {channelOptions.map((ch) => (
             <button
               key={ch.id}
               onClick={() => setActiveChannel(ch.id as any)}
@@ -196,6 +220,12 @@ export const SensorIntelligenceChart: React.FC<SensorIntelligenceChartProps> = (
               <linearGradient id="blueGrad" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
                 <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.0} />
+              </linearGradient>
+
+              {/* ECG Lead II Gradient (Emerald) */}
+              <linearGradient id="emeraldGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="#10b981" stopOpacity={0.45} />
+                <stop offset="95%" stopColor="#10b981" stopOpacity={0.0} />
               </linearGradient>
             </defs>
 
@@ -307,11 +337,11 @@ export const SensorIntelligenceChart: React.FC<SensorIntelligenceChartProps> = (
               <Area
                 type="monotone"
                 dataKey="pressure"
-                stroke="#3b82f6"
-                strokeWidth={2}
-                fill="url(#blueGrad)"
-                name="Pressure (cmH₂O)"
-                isAnimationActive={true}
+                stroke={isSimulationMode ? "#10b981" : "#3b82f6"}
+                strokeWidth={isSimulationMode ? 2.2 : 2}
+                fill={isSimulationMode ? "url(#emeraldGrad)" : "url(#blueGrad)"}
+                name={isSimulationMode ? "ECG Lead II (mV)" : "Pressure (cmH₂O)"}
+                isAnimationActive={false}
               />
             )}
           </AreaChart>
@@ -321,24 +351,43 @@ export const SensorIntelligenceChart: React.FC<SensorIntelligenceChartProps> = (
       {/* Clean Legend Bar at bottom */}
       <div className="mt-3 pt-3 border-t border-slate-800/80 flex flex-wrap items-center justify-between text-xs text-slate-400 gap-2">
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-cyan-400" />
-            <span className="text-slate-300">SpO₂ (Normal: 95-100%)</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-red-400" />
-            <span className="text-slate-300">Heart Rate (60-100 bpm)</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
-            <span className="text-slate-300">Temp (36.5-37.4°C)</span>
-          </div>
+          {isSimulationMode ? (
+            <>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
+                <span className="text-slate-300">ECG Lead II (mV)</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-red-400" />
+                <span className="text-slate-300">Heart Rate (~136 bpm Tachycardia)</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-cyan-400" />
+                <span className="text-slate-300">SpO₂ (98%)</span>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-cyan-400" />
+                <span className="text-slate-300">SpO₂ (Normal: 95-100%)</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-red-400" />
+                <span className="text-slate-300">Heart Rate (60-100 bpm)</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
+                <span className="text-slate-300">Temp (36.5-37.4°C)</span>
+              </div>
+            </>
+          )}
         </div>
 
         <div className="flex items-center gap-2 text-[11px] text-slate-400 font-mono">
-          <span>Resolution: 1 sample/min</span>
+          <span>{isSimulationMode ? '250 Hz Native Sampling · WFDB t108s' : 'Resolution: 1 sample/min'}</span>
           <span>·</span>
-          <span>Wavelet Denoised (db4)</span>
+          <span>{isSimulationMode ? 'Pre-Alarm Window: 30.0s' : 'Wavelet Denoised (db4)'}</span>
         </div>
       </div>
     </div>

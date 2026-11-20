@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   UploadCloud, 
   FileSpreadsheet, 
@@ -13,12 +13,14 @@ import {
   Sparkles,
   ShieldCheck,
   RefreshCw,
-  AlertTriangle
+  AlertTriangle,
+  X
 } from 'lucide-react';
 import { AnalysisMode } from '../../types';
 import { INITIAL_DATASETS } from '../../data/mockData';
 import { 
   uploadDatasetFile, 
+  uploadAlarmPair,
   analyzeDataset, 
   fetchAvailableDatasets,
   checkBackendHealth,
@@ -36,6 +38,7 @@ export const UploadWorkflow: React.FC<UploadWorkflowProps> = ({
   const [presets, setPresets] = useState<any[]>(INITIAL_DATASETS);
   const [selectedDataset, setSelectedDataset] = useState<any>(INITIAL_DATASETS[0]);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedAlarmPair, setSelectedAlarmPair] = useState<{ hea: File; mat: File } | null>(null);
   const [analysisMode, setAnalysisMode] = useState<AnalysisMode>('dual');
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
@@ -45,6 +48,21 @@ export const UploadWorkflow: React.FC<UploadWorkflowProps> = ({
   const [failedStage, setFailedStage] = useState<'upload' | 'analyze' | null>(null);
   const [backendHealthy, setBackendHealthy] = useState<boolean | null>(null);
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleRemoveFile = () => {
+    setSelectedFile(null);
+    setSelectedAlarmPair(null);
+    setValidationResult(null);
+    setUploadError(null);
+    setFailedStage(null);
+    if (presets.length > 0) {
+      setSelectedDataset(presets[0]);
+    }
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
 
   // Load presets & backend health on mount
   useEffect(() => {
@@ -69,19 +87,96 @@ export const UploadWorkflow: React.FC<UploadWorkflowProps> = ({
   const handleSelectPreset = (dataset: any) => {
     setSelectedDataset(dataset);
     setSelectedFile(null);
+    setSelectedAlarmPair(null);
     setUploadError(null);
     setFailedStage(null);
     setValidationResult(null);
+
+    // If preset is a PhysioNet waveform pair, auto-switch to icu_alarm mode
+    if (dataset.fileName?.includes('.hea') || dataset.name?.includes('PhysioNet')) {
+      setAnalysisMode('icu_alarm');
+    } else if (analysisMode === 'icu_alarm') {
+      setAnalysisMode('dual');
+    }
   };
 
-  const processUploadedFile = async (file: File) => {
-    setSelectedFile(file);
-    setIsUploading(true);
+  const processUploadedFiles = async (files: FileList | File[]) => {
+    if (!files || files.length === 0) return;
     setUploadError(null);
     setFailedStage(null);
 
+    const fileArray = Array.from(files);
+    const heaFile = fileArray.find(f => f.name.toLowerCase().endsWith('.hea'));
+    const matFile = fileArray.find(f => f.name.toLowerCase().endsWith('.mat'));
+
+    // 1. Both .hea and .mat selected (PhysioNet Waveform Pair)
+    if (heaFile && matFile) {
+      setSelectedFile(heaFile);
+      setSelectedAlarmPair({ hea: heaFile, mat: matFile });
+      setIsUploading(true);
+
+      try {
+        const validation = await uploadAlarmPair(heaFile, matFile);
+        setValidationResult(validation);
+
+        const customDataset = {
+          id: `upload-alarm-${Date.now()}`,
+          fileName: validation.fileName,
+          name: validation.fileName,
+          records: validation.recordsCount,
+          columns: validation.columns.length,
+          size: validation.fileSize,
+          deviceType: 'ICU Monitor (PhysioNet 2015)',
+          status: 'PhysioNet Waveform Pair' as const,
+          risk: 'Verification Pending' as const,
+          confidence: 90.0,
+          channels: validation.columns,
+          previewRows: validation.previewRows.map((row: any) => ({
+            timestamp: row.time || 't-0.0s',
+            spo2: row.spo2 ?? 98.0,
+            heartRate: row.heartRate ?? 75,
+            temperature: row.temperature ?? 36.8,
+            pressure: row.pressure ?? 0.0,
+            motorCurrent: 0.0,
+            status: row.status || 'WAVEFORM'
+          }))
+        };
+
+        setSelectedDataset(customDataset);
+        setAnalysisMode('icu_alarm'); // Auto-select ICU Alarm mode for .hea + .mat!
+        setBackendHealthy(true);
+      } catch (err: any) {
+        setFailedStage('upload');
+        setUploadError(err.message || 'Failed to upload and validate PhysioNet waveform pair.');
+      } finally {
+        setIsUploading(false);
+      }
+      return;
+    }
+
+    // 2. Incomplete PhysioNet upload guards
+    if (heaFile && !matFile) {
+      setSelectedFile(heaFile);
+      setFailedStage('upload');
+      setUploadError(`Incomplete PhysioNet waveform pair: Selected header '${heaFile.name}'. Please select BOTH the .hea header file and the .mat binary waveform file together (hold Ctrl/Cmd to select both files in the file dialog).`);
+      return;
+    }
+
+    if (matFile && !heaFile) {
+      setSelectedFile(matFile);
+      setFailedStage('upload');
+      setUploadError(`Incomplete PhysioNet waveform pair: Selected waveform '${matFile.name}'. Please select BOTH the .hea header file and the .mat binary waveform file together (hold Ctrl/Cmd to select both files in the file dialog).`);
+      return;
+    }
+
+    // 3. Standard CSV / XLS / XLSX
+    const singleFile = fileArray[0];
+    setSelectedFile(singleFile);
+    setSelectedAlarmPair(null);
+    setIsUploading(true);
+
     try {
-      const validation = await uploadDatasetFile(file);
+      const validation = await uploadDatasetFile(singleFile);
       setValidationResult(validation);
 
       const customDataset = {
@@ -108,6 +203,9 @@ export const UploadWorkflow: React.FC<UploadWorkflowProps> = ({
       };
 
       setSelectedDataset(customDataset);
+      if (analysisMode === 'icu_alarm') {
+        setAnalysisMode('dual'); // Reset from icu_alarm to dual when uploading CSV vitals
+      }
       setBackendHealthy(true);
     } catch (err: any) {
       setFailedStage('upload');
@@ -121,7 +219,7 @@ export const UploadWorkflow: React.FC<UploadWorkflowProps> = ({
     e.preventDefault();
     setIsDragging(false);
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      processUploadedFile(e.dataTransfer.files[0]);
+      processUploadedFiles(e.dataTransfer.files);
     }
   };
 
@@ -131,17 +229,52 @@ export const UploadWorkflow: React.FC<UploadWorkflowProps> = ({
     setUploadError(null);
     setFailedStage(null);
 
-    setProcessingStep('Validating schema & signal frequency...');
+    const dsName = selectedDataset?.fileName || selectedDataset?.name || '';
+    const isWaveform = dsName.includes('.hea') || dsName.includes('.mat');
+
+    // Validation guard: Mode compatibility
+    if (analysisMode === 'icu_alarm' && !isWaveform) {
+      setIsProcessing(false);
+      setFailedStage('analyze');
+      setUploadError("Incompatible Input: ICU Alarm Verification requires physiological waveform files (.hea + .mat) with clinical alarm context. The selected file is a tabular CSV. Please choose Dual, Fault, or Risk mode for CSV vitals.");
+      return;
+    }
+
+    if (analysisMode !== 'icu_alarm' && isWaveform) {
+      setIsProcessing(false);
+      setFailedStage('analyze');
+      setUploadError("Incompatible Mode: PhysioNet waveform pairs (.hea + .mat) must be evaluated using the 'ICU Alarm Verification' mode.");
+      return;
+    }
+
+    if (analysisMode === 'icu_alarm') {
+      setProcessingStep('Extracting 30-sec pre-alarm ECG waveform segment...');
+    } else {
+      setProcessingStep('Validating schema & signal frequency...');
+    }
+
     const stepTimer1 = setTimeout(() => {
-      setProcessingStep('Applying Savitzky-Golay Denoising & baseline correction...');
+      if (analysisMode === 'icu_alarm') {
+        setProcessingStep('Bandpass filtering & QRS Pan-Tompkins dynamics...');
+      } else {
+        setProcessingStep('Applying Savitzky-Golay Denoising & baseline correction...');
+      }
     }, 400);
 
     const stepTimer2 = setTimeout(() => {
-      setProcessingStep('Computing spectral features & Signal Quality Index (SQI)...');
+      if (analysisMode === 'icu_alarm') {
+        setProcessingStep('Computing 48 spectral, morphological & pause features...');
+      } else {
+        setProcessingStep('Computing spectral features & Signal Quality Index (SQI)...');
+      }
     }, 800);
 
     const stepTimer3 = setTimeout(() => {
-      setProcessingStep('Executing 1D-CNN + BiLSTM temporal inference...');
+      if (analysisMode === 'icu_alarm') {
+        setProcessingStep('Executing PhysioNet 2015 Random Forest classification...');
+      } else {
+        setProcessingStep('Executing 1D-CNN + BiLSTM temporal inference...');
+      }
     }, 1200);
 
     try {
@@ -221,8 +354,12 @@ export const UploadWorkflow: React.FC<UploadWorkflowProps> = ({
           </div>
           <button
             onClick={() => {
-              if (failedStage === 'upload' && selectedFile) {
-                processUploadedFile(selectedFile);
+              if (failedStage === 'upload') {
+                if (selectedAlarmPair) {
+                  processUploadedFiles([selectedAlarmPair.hea, selectedAlarmPair.mat]);
+                } else if (selectedFile) {
+                  processUploadedFiles([selectedFile]);
+                }
               } else {
                 handleRunPipeline();
               }
@@ -234,61 +371,165 @@ export const UploadWorkflow: React.FC<UploadWorkflowProps> = ({
         </div>
       )}
 
-      {/* Upload Zone */}
-      <div 
-        onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-        onDragLeave={() => setIsDragging(false)}
-        onDrop={handleFileDrop}
-        className={`relative group rounded-2xl border-2 border-dashed p-8 sm:p-12 text-center transition-all duration-300 cursor-pointer overflow-hidden ${
-          isDragging 
-            ? 'border-cyan-400 bg-cyan-950/30 shadow-2xl shadow-cyan-500/20' 
-            : 'border-slate-700/80 hover:border-cyan-500/60 bg-gradient-to-b from-[#091122]/70 via-[#070c17] to-[#050912]'
-        }`}
-      >
-        <div className="absolute -top-24 left-1/2 -translate-x-1/2 w-96 h-48 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
+      {/* Hidden file input for file picker and Replace action */}
+      <input 
+        ref={fileInputRef}
+        type="file" 
+        accept=".csv,.xls,.xlsx,.hea,.mat" 
+        multiple
+        className="hidden"
+        disabled={isUploading || isProcessing}
+        onClick={(e) => {
+          (e.target as HTMLInputElement).value = '';
+        }}
+        onChange={(e) => {
+          if (e.target.files && e.target.files.length > 0) {
+            processUploadedFiles(e.target.files);
+          }
+        }}
+      />
 
-        <div className="relative flex flex-col items-center justify-center">
-          <div className="w-16 h-16 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 mb-4 group-hover:scale-105 group-hover:border-cyan-400 transition-all duration-300 shadow-lg shadow-cyan-950/50">
-            {isUploading ? (
-              <RefreshCw className="w-8 h-8 text-cyan-400 animate-spin" />
-            ) : (
-              <UploadCloud className="w-8 h-8 group-hover:animate-bounce" />
-            )}
+      {/* Upload Zone / Solid Highlighted File Card */}
+      {selectedFile ? (
+        /* SOLID HIGHLIGHTED FILE CARD (when a file is selected) */
+        <div 
+          onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+          onDragLeave={() => setIsDragging(false)}
+          onDrop={handleFileDrop}
+          className={`relative rounded-2xl border-2 border-cyan-500 bg-gradient-to-r from-cyan-950/60 via-slate-900 to-[#070c17] p-6 sm:p-8 shadow-2xl transition-all duration-300 ${
+            isDragging ? 'ring-2 ring-cyan-400 bg-cyan-950/80 scale-[1.01]' : ''
+          }`}
+        >
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+            <div className="flex items-start sm:items-center gap-4">
+              <div className="w-14 h-14 rounded-2xl bg-cyan-500/20 border border-cyan-400/50 flex items-center justify-center text-cyan-300 shrink-0 shadow-lg shadow-cyan-950/50">
+                {isUploading ? (
+                  <RefreshCw className="w-7 h-7 animate-spin text-cyan-400" />
+                ) : (
+                  <FileSpreadsheet className="w-7 h-7 text-cyan-300" />
+                )}
+              </div>
+
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/40 text-xs font-semibold text-emerald-300">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    File selected
+                  </span>
+                  {selectedAlarmPair ? (
+                    <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-purple-900/60 text-purple-300 border border-purple-700/60">
+                      PhysioNet WFDB Pair
+                    </span>
+                  ) : (
+                    <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                      Telemetry Dataset
+                    </span>
+                  )}
+                </div>
+
+                <h3 className="text-lg font-bold text-white tracking-tight break-all">
+                  {selectedAlarmPair 
+                    ? `${selectedAlarmPair.hea.name} + ${selectedAlarmPair.mat.name}` 
+                    : selectedFile.name}
+                </h3>
+
+                <div className="flex flex-wrap items-center gap-3 text-xs text-slate-300 font-mono">
+                  <span>
+                    {selectedAlarmPair 
+                      ? `${((selectedAlarmPair.hea.size + selectedAlarmPair.mat.size) / 1024).toFixed(1)} KB`
+                      : `${(selectedFile.size / 1024).toFixed(1)} KB`}
+                  </span>
+                  {validationResult && (
+                    <>
+                      <span>·</span>
+                      <span className="text-cyan-300">{validationResult.recordsCount.toLocaleString()} samples</span>
+                      <span>·</span>
+                      <span>{validationResult.columns.length} channels</span>
+                    </>
+                  )}
+                  {isUploading && (
+                    <span className="text-cyan-400 animate-pulse">· Ingesting...</span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Action Buttons: Analyze selected file, Replace, Remove */}
+            <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+              <button
+                onClick={handleRunPipeline}
+                disabled={isProcessing || isUploading}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-semibold text-xs sm:text-sm shadow-xl shadow-cyan-950/40 border border-cyan-400/40 transition-all cursor-pointer disabled:opacity-50"
+              >
+                {isProcessing ? (
+                  <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                ) : (
+                  <Cpu className="w-4 h-4 text-cyan-200" />
+                )}
+                <span>{isProcessing ? 'Analyzing...' : 'Analyze selected file'}</span>
+              </button>
+
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isProcessing || isUploading}
+                className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 hover:border-slate-600 transition-colors cursor-pointer disabled:opacity-50"
+              >
+                <RefreshCw className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Replace</span>
+              </button>
+
+              <button
+                onClick={handleRemoveFile}
+                disabled={isProcessing || isUploading}
+                className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-slate-900 hover:bg-red-950/60 text-slate-400 hover:text-red-300 text-xs font-semibold border border-slate-800 hover:border-red-500/40 transition-colors cursor-pointer disabled:opacity-50"
+              >
+                <X className="w-3.5 h-3.5" />
+                <span>Remove</span>
+              </button>
+            </div>
           </div>
-
-          <h3 className="text-lg font-bold text-white">
-            {isUploading ? 'Validating and Ingesting Dataset...' : selectedFile ? `Custom File Selected: ${selectedFile.name}` : 'Drop your medical dataset here'}
-          </h3>
-          <p className="text-sm text-slate-400 mt-1">
-            {selectedFile 
-              ? `${(selectedFile.size / 1024).toFixed(1)} KB · Drag new file or click to replace`
-              : 'Drag and drop telemetry files or browse from your workstation'}
-          </p>
-
-          <div className="flex items-center gap-2 mt-4 text-xs font-mono text-slate-400">
-            <span className="px-2 py-1 rounded bg-slate-800/80 border border-slate-700/60">CSV</span>
-            <span className="px-2 py-1 rounded bg-slate-800/80 border border-slate-700/60">XLS</span>
-            <span className="px-2 py-1 rounded bg-slate-800/80 border border-slate-700/60">XLSX</span>
-            <span>· Max 50 MB / 500,000 samples</span>
-          </div>
-
-          <input 
-            type="file" 
-            accept=".csv,.xls,.xlsx" 
-            className="absolute inset-0 opacity-0 cursor-pointer"
-            disabled={isUploading || isProcessing}
-            onClick={(e) => {
-              // Clear previous value so selecting the same file repeatedly triggers onChange
-              (e.target as HTMLInputElement).value = '';
-            }}
-            onChange={(e) => {
-              if (e.target.files && e.target.files.length > 0) {
-                processUploadedFile(e.target.files[0]);
-              }
-            }}
-          />
         </div>
-      </div>
+      ) : (
+        /* EMPTY DASHED DROP ZONE (when no file is selected) */
+        <div 
+          onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+          onDragLeave={() => setIsDragging(false)}
+          onDrop={handleFileDrop}
+          onClick={() => fileInputRef.current?.click()}
+          className={`relative group rounded-2xl border-2 border-dashed p-8 sm:p-12 text-center transition-all duration-300 cursor-pointer overflow-hidden ${
+            isDragging 
+              ? 'border-cyan-400 bg-cyan-950/30 shadow-2xl shadow-cyan-500/20' 
+              : 'border-slate-700/80 hover:border-cyan-500/60 bg-gradient-to-b from-[#091122]/70 via-[#070c17] to-[#050912]'
+          }`}
+        >
+          <div className="absolute -top-24 left-1/2 -translate-x-1/2 w-96 h-48 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
+
+          <div className="relative flex flex-col items-center justify-center">
+            <div className="w-16 h-16 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 mb-4 group-hover:scale-105 group-hover:border-cyan-400 transition-all duration-300 shadow-lg shadow-cyan-950/50">
+              {isUploading ? (
+                <RefreshCw className="w-8 h-8 text-cyan-400 animate-spin" />
+              ) : (
+                <UploadCloud className="w-8 h-8 group-hover:animate-bounce" />
+              )}
+            </div>
+
+            <h3 className="text-lg font-bold text-white">
+              {isUploading ? 'Validating and Ingesting Dataset...' : 'Drop your medical dataset here'}
+            </h3>
+            <p className="text-sm text-slate-400 mt-1">
+              Drag and drop telemetry files or browse from your workstation
+            </p>
+
+            <div className="flex flex-wrap items-center justify-center gap-2 mt-4 text-xs font-mono text-slate-400">
+              <span className="px-2 py-1 rounded bg-slate-800/80 border border-slate-700/60">CSV</span>
+              <span className="px-2 py-1 rounded bg-slate-800/80 border border-slate-700/60">XLS</span>
+              <span className="px-2 py-1 rounded bg-slate-800/80 border border-slate-700/60">XLSX</span>
+              <span className="px-2 py-1 rounded bg-purple-950/80 border border-purple-500/50 text-purple-300">HEA + MAT (PhysioNet)</span>
+              <span>· Max 50 MB / 500,000 samples</span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Preset Demo Datasets for Quick Testing */}
       <div className="space-y-3">
@@ -382,7 +623,7 @@ export const UploadWorkflow: React.FC<UploadWorkflowProps> = ({
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {/* Option 1: Dual Multi-task (Recommended) */}
           <div 
             onClick={() => setAnalysisMode('dual')}
@@ -445,6 +686,31 @@ export const UploadWorkflow: React.FC<UploadWorkflowProps> = ({
             </h4>
             <p className="text-xs text-slate-400 mt-1 leading-relaxed">
               Evaluates physiological trend variance (desaturation, bradycardia, tachypnea) filtered for sensor reliability.
+            </p>
+          </div>
+
+          {/* Option 4: ICU Alarm Verification (PhysioNet) */}
+          <div 
+            onClick={() => setAnalysisMode('icu_alarm')}
+            className={`p-4 rounded-xl border transition-all duration-200 cursor-pointer ${
+              analysisMode === 'icu_alarm'
+                ? 'border-purple-400/80 bg-gradient-to-br from-purple-950/40 via-indigo-950/30 to-[#070c17] ring-1 ring-purple-400/50 shadow-lg shadow-purple-950/30'
+                : 'border-slate-800/80 bg-slate-900/50 hover:border-slate-700'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <div className="p-2 rounded-lg bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                <ShieldCheck className="w-4 h-4" />
+              </div>
+              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-purple-500/20 text-purple-300">
+                PHYSIO-NET
+              </span>
+            </div>
+            <h4 className="text-sm font-bold text-white mt-3">
+              ICU Alarm Verification
+            </h4>
+            <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+              Verifies true vs. false ICU arrhythmia alarms (Asystole, Brady, Tachy, V-Fib, V-Tach) using WFDB .hea + .mat waveforms.
             </p>
           </div>
         </div>
@@ -574,7 +840,9 @@ export const UploadWorkflow: React.FC<UploadWorkflowProps> = ({
             Ready to execute deep learning analysis on {selectedDataset?.name}
           </span>
           <span className="text-xs text-slate-400 block mt-0.5">
-            Model: 1D-CNN + BiLSTM with Temporal Multi-Head Attention · Mode: {analysisMode.toUpperCase()}
+            {analysisMode === 'icu_alarm' 
+              ? 'Model: Random Forest (PhysioNet 2015 48-Feature Pre-Alarm) · Mode: ICU ALARM VERIFICATION'
+              : `Model: 1D-CNN + BiLSTM with Temporal Multi-Head Attention · Mode: ${analysisMode.toUpperCase()}`}
           </span>
         </div>
 

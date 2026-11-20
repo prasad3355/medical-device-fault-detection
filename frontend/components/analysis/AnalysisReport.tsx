@@ -19,6 +19,7 @@ import {
 import { SensorIntelligenceChart } from '../dashboard/SensorIntelligenceChart';
 import { AnalysisRecord, TelemetryPoint, DetectedAnomaly, AnalysisMode } from '../../types';
 import { FullAnalysisData } from '../../lib/api';
+import { generateAnalysisPDF } from '../../lib/pdfGenerator';
 
 interface AnalysisReportProps {
   data?: FullAnalysisData;
@@ -34,6 +35,7 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
   const [selectedAnomalyId, setSelectedAnomalyId] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [exportSuccess, setExportSuccess] = useState<boolean>(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   const currentRecord = data?.record;
   const telemetry = data?.telemetry || [];
@@ -49,12 +51,18 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
   const executionTimeMs = currentRecord?.executionTimeMs || 340;
 
   const handleExport = () => {
+    if (!data) return;
     setIsExporting(true);
-    setTimeout(() => {
+    setExportError(null);
+    try {
+      generateAnalysisPDF(data);
       setIsExporting(false);
       setExportSuccess(true);
       setTimeout(() => setExportSuccess(false), 3000);
-    }, 800);
+    } catch (err: any) {
+      setIsExporting(false);
+      setExportError(err.message || 'Failed to generate PDF report.');
+    }
   };
 
   const isFaultMode = mode === 'fault_only';
@@ -69,22 +77,31 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
 
         <div className="relative flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="space-y-1">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-xs font-semibold text-emerald-400">
                 <CheckCircle2 className="w-3.5 h-3.5" />
-                Analysis Completed
+                Analysis complete
               </span>
               <span className="text-xs font-mono px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-300 border border-cyan-500/20">
                 Mode: {mode.toUpperCase()}
               </span>
+              {(datasetName.toLowerCase().includes('icu') || datasetName.toLowerCase().includes('synthetic') || currentRecord?.deviceType?.toLowerCase().includes('synthetic')) && (
+                <span className="text-xs font-mono px-2 py-0.5 rounded bg-purple-500/10 text-purple-300 border border-purple-500/30">
+                  Synthetic ICU telemetry
+                </span>
+              )}
             </div>
 
             <h2 className="text-xl sm:text-2xl font-bold text-white tracking-tight mt-1">
               Diagnostic Telemetry Report · {datasetName}
             </h2>
 
-            <div className="flex flex-wrap items-center gap-4 text-xs font-mono text-slate-400 pt-1">
-              <span>{recordCount.toLocaleString()} samples evaluated</span>
+            <div className="flex flex-wrap items-center gap-3 text-xs font-mono text-slate-400 pt-1">
+              <span className="text-white font-medium">{recordCount.toLocaleString()} samples evaluated</span>
+              <span>·</span>
+              <span className="text-cyan-300">Source: {datasetName}</span>
+              <span>·</span>
+              <span className="text-purple-300">Synthetic ICU telemetry</span>
               <span>·</span>
               <span>Inference: {executionTimeMs.toFixed(0)}ms</span>
               <span>·</span>
@@ -95,16 +112,21 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
           </div>
 
           {/* Right Export Actions */}
-          <div className="flex items-center gap-2 self-start md:self-auto">
+          <div className="flex flex-col sm:flex-row items-end sm:items-center gap-2 self-start md:self-auto">
+            {exportError && (
+              <span className="text-[11px] text-red-400 font-mono bg-red-950/60 px-2 py-1 rounded border border-red-500/40">
+                {exportError}
+              </span>
+            )}
             <button
               onClick={handleExport}
-              disabled={isExporting}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold border border-slate-700 hover:border-cyan-500/40 transition-all cursor-pointer shadow-md"
+              disabled={!data || isExporting}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold border border-slate-700 hover:border-cyan-500/40 transition-all cursor-pointer shadow-md disabled:opacity-50"
             >
               {exportSuccess ? (
                 <>
                   <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                  <span className="text-emerald-300">Report Exported</span>
+                  <span className="text-emerald-300">PDF Downloaded</span>
                 </>
               ) : isExporting ? (
                 <>
@@ -114,7 +136,7 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
               ) : (
                 <>
                   <FileDown className="w-4 h-4 text-cyan-400" />
-                  <span>Export Engineering Report</span>
+                  <span>Download PDF Report</span>
                 </>
               )}
             </button>
@@ -130,6 +152,24 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
         </div>
       </div>
 
+      {/* Prototype Review Banner for ICU Alarm Mode */}
+      {mode === 'icu_alarm' && (
+        <div className="p-4 rounded-xl border border-purple-500/40 bg-purple-950/30 text-purple-200 flex items-start gap-3 shadow-lg">
+          <Info className="w-5 h-5 text-purple-400 shrink-0 mt-0.5" />
+          <div className="text-xs space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="font-bold text-white">ICU Arrhythmia Alarm Verification Prototype</span>
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                PhysioNet 2015 Challenge
+              </span>
+            </div>
+            <p className="text-purple-300/90 leading-relaxed">
+              Prototype result for clinical review. Model trained and verified on 750 PhysioNet 2015 ICU recordings with held-out true alarm recall of 75.9% and specificity of 92.4%.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* OVERALL DEVICE STATUS - Large Tasteful Status Card */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Main Status Gauge Card */}
@@ -142,12 +182,16 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
                 Primary Model Verdict
               </span>
               <h3 className="text-lg font-bold text-white mt-0.5">
-                {isRiskMode ? 'Patient Stability & Physiological Risk' : 'Medical Device Hardware & Sensor Status'}
+                {mode === 'icu_alarm'
+                  ? 'PhysioNet ICU Alarm Verification Verdict'
+                  : isRiskMode 
+                  ? 'Patient Stability & Physiological Risk' 
+                  : 'Medical Device Hardware & Sensor Status'}
               </h3>
             </div>
             <div className="flex items-center gap-2 text-xs font-mono text-cyan-400">
               <ShieldCheck className="w-4 h-4" />
-              <span>1D-CNN + BiLSTM Inference</span>
+              <span>{mode === 'icu_alarm' ? 'Random Forest (PhysioNet 2015)' : '1D-CNN + BiLSTM Inference'}</span>
             </div>
           </div>
 
@@ -156,15 +200,15 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
             <div className="sm:col-span-7 space-y-4">
               <div className="flex items-center gap-3">
                 <span className={`p-3 rounded-xl border ${
-                  status === 'Normal' && risk === 'Low'
-                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-                    : status === 'Fault Detected' || risk === 'High'
+                  status === 'True Alarm' || status === 'Fault Detected' || risk === 'High'
                     ? 'bg-red-500/10 border-red-500/30 text-red-400'
+                    : status === 'False Alarm' || (status === 'Normal' && risk === 'Low')
+                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
                     : 'bg-amber-500/10 border-amber-500/30 text-amber-400'
                 }`}>
-                  {status === 'Normal' && risk === 'Low' ? (
+                  {status === 'False Alarm' || (status === 'Normal' && risk === 'Low') ? (
                     <CheckCircle2 className="w-8 h-8" />
-                  ) : status === 'Fault Detected' || risk === 'High' ? (
+                  ) : status === 'True Alarm' || status === 'Fault Detected' || risk === 'High' ? (
                     <AlertOctagon className="w-8 h-8" />
                   ) : (
                     <AlertTriangle className="w-8 h-8" />
@@ -172,7 +216,11 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
                 </span>
                 <div>
                   <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                    {isRiskMode ? 'Physiological Risk Level' : 'Device Fault Classification'}
+                    {mode === 'icu_alarm'
+                      ? 'ICU Alarm Classification'
+                      : isRiskMode 
+                      ? 'Physiological Risk Level' 
+                      : 'Device Fault Classification'}
                   </span>
                   <div className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
                     {isRiskMode ? `${risk} Risk` : status}
@@ -181,7 +229,11 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
               </div>
 
               <p className="text-xs text-slate-300 leading-relaxed">
-                {isRiskMode ? (
+                {mode === 'icu_alarm' ? (
+                  status === 'True Alarm'
+                    ? 'True arrhythmia alarm verified by multi-feature pre-alarm ECG analysis. Critical cardiac event requires immediate clinical intervention.'
+                    : 'False arrhythmia alarm identified. Transient sensor noise, motion artifact, or lead displacement caused pseudo-arrhythmia trigger; safe to suppress.'
+                ) : isRiskMode ? (
                   'Patient physiological telemetry stream evaluated against clinical stability thresholds. Detected flags represent patterns observed during telemetry monitoring that may warrant clinical review.'
                 ) : status === 'Normal' ? (
                   'All telemetry signals, impedance values, and sensor coupling indices remained within nominal IEC specifications throughout the recording session.'
@@ -195,9 +247,15 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
               <div className="flex flex-wrap items-center gap-3 text-xs font-mono">
                 {!isRiskMode && (
                   <div className="px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800">
-                    <span className="text-slate-400 block text-[10px]">DEVICE FAULT STATUS</span>
+                    <span className="text-slate-400 block text-[10px]">
+                      {mode === 'icu_alarm' ? 'ALARM VERDICT' : 'DEVICE FAULT STATUS'}
+                    </span>
                     <span className={`font-bold font-sans text-sm ${
-                      status === 'Normal' ? 'text-emerald-400' : status === 'Possible Anomaly' ? 'text-amber-400' : 'text-red-400'
+                      status === 'True Alarm' || status === 'Fault Detected'
+                        ? 'text-red-400'
+                        : status === 'False Alarm' || status === 'Normal'
+                        ? 'text-emerald-400'
+                        : 'text-amber-400'
                     }`}>{status}</span>
                   </div>
                 )}

@@ -210,14 +210,14 @@ export const PredictionHistory: React.FC<PredictionHistoryProps> = ({
 
                     <td className="py-3.5 px-3 whitespace-nowrap">
                       <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium ${
-                        item.deviceStatus === 'Normal'
+                        item.deviceStatus === 'Normal' || item.deviceStatus === 'False Alarm'
                           ? 'bg-emerald-950/40 text-emerald-300 border border-emerald-500/30'
                           : item.deviceStatus === 'Possible Anomaly'
                           ? 'bg-amber-950/40 text-amber-300 border border-amber-500/30'
                           : 'bg-red-950/40 text-red-300 border border-red-500/30'
                       }`}>
                         <span className={`w-1.5 h-1.5 rounded-full ${
-                          item.deviceStatus === 'Normal' ? 'bg-emerald-400' : item.deviceStatus === 'Possible Anomaly' ? 'bg-amber-400' : 'bg-red-400'
+                          item.deviceStatus === 'Normal' || item.deviceStatus === 'False Alarm' ? 'bg-emerald-400' : item.deviceStatus === 'Possible Anomaly' ? 'bg-amber-400' : 'bg-red-400'
                         }`} />
                         {item.deviceStatus}
                       </span>
